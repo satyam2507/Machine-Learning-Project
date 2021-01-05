@@ -1,0 +1,283 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+# You can write up to 5GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+# Required Imports
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+import nltk
+import re 
+import string 
+
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import tensorflow as tf
+from tensorflow.keras.optimizers import RMSprop
+# Reading File
+
+# we don't know if data is comma seprated or not, Use file handling to read text file
+
+with open('/kaggle/input/sentiment-analysis-of-tweets/train.txt','r') as f:
+    data = f.readlines()
+# Looking At Data
+
+# first 10 lines
+data[0:10]
+
+here we can see that it is seprated by comma.
+
+# last 10 lines
+data[-10:]
+
+here we can see that it is seprated by comma.
+
+# some line in middle
+data[10720:10730]
+
+# Loading Data
+
+# creating list for holding data at index position
+tweet_id = []
+labels = []
+sentences = []
+
+# Loading Data Into List
+
+for line in data[1:]: # skipping first line as it contain header
+    l = line.split(',',2)
+    if len(l) == 3:
+        tweet_id.append(l[0])
+        if l[1] == 'positive':
+            x = 1
+        elif l[1] == 'negative':
+            x = 0
+        elif l[1] == 'neutral':
+            x = 2
+        labels.append(x)
+        s = l[2][:-1]
+        sentences.append(s)
+    else:
+        l = line.split('\t',2)
+        if len(l) == 3:
+            tweet_id.append(l[0])
+            if l[1] == 'positive':
+                x = 1
+            elif l[1] == 'negative':
+                x = 0
+            elif l[1] == 'neutral':
+                x = 2
+            labels.append(x)
+            s = l[2][:-1]
+            sentences.append(s)
+        else:
+            print(l)
+
+###using numerical value for sentiment : 0 - negative, 2 - neutral and 1 - positive
+# Exploratory Data Analysis
+
+# checking if data from text file and data in list are of same length
+print("Length of text file : ", len(data) - 1) # first line is header
+print("Length of list : ", len(sentences))
+# Data Cleaning and Preprocessing
+
+# intializing english stopwords 
+stop_words = nltk.corpus.stopwords.words('english')
+string.punctuation
+
+#Cleaning the data
+cleaned_sentences = []
+for sentence in sentences:
+    sent_list = sentence.split(" ")
+    new_sent_list = []
+    for word in sent_list:
+        word_l = word.lower()
+        if word_l not in stop_words and len(word_l)>1:
+            if '@' in word_l:
+                continue
+            elif len(word_l) > 4 and word_l[:4] == 'http':
+                continue
+            else:
+                w = ''.join([i for i in word_l if not i in string.punctuation])
+                if len(w) != 0:
+                    new_sent_list.append(w)
+                
+    new_sent = " ".join(new_sent_list)
+    cleaned_sentences.append(new_sent)
+
+sent_list = sentences[17300].split(" ")
+sent_list
+
+#Checking length of cleaned sentences
+print(len(cleaned_sentences))
+#Checking a clean sentence
+cleaned_sentences[21629]
+# Splitting the Data
+
+# Spliting data (approx 20% data for validation)
+t_per = int(len(cleaned_sentences)/100 * 20)
+print(t_per)
+print(len(cleaned_sentences) - t_per)
+training_sentences = cleaned_sentences[:17300]
+training_labels = labels[:17300]
+validation_sentences = cleaned_sentences[17300:]
+validation_labels = labels[17300:]
+
+#checking the training(approx 80%) split data
+print(training_sentences[17299],training_labels[17299])
+print(cleaned_sentences[17300],labels[17300])
+print(sentences[17300])
+
+#checking the validation(approx 20%) split data
+print(validation_sentences[4000],validation_labels[4000])
+print(cleaned_sentences[17300+4000+1],labels[17300+4000+1])
+print(sentences[17300+4000+1])
+
+#converting training and validation label lists to numpy arrays
+training_labels_final = np.array(training_labels)
+validation_labels_final = np.array(validation_labels)
+
+#Vocabulary Declaration ,Padding And Tokenization
+vocab_size = 100000
+embedding_dim = 16
+#max_length = 32
+trunc_type='post'
+oov_tok = "<OOV>"
+
+
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+tokenizer = Tokenizer(num_words = vocab_size, oov_token=oov_tok)
+tokenizer.fit_on_texts(training_sentences)
+word_index = tokenizer.word_index
+sequences = tokenizer.texts_to_sequences(training_sentences)
+padded = pad_sequences(sequences, truncating=trunc_type)
+
+#Defining Maximum Input Length
+max_length = padded.shape[1]
+validation_sequences = tokenizer.texts_to_sequences(validation_sentences)
+validation_padded = pad_sequences(validation_sequences,maxlen=max_length)
+# Model Building
+
+model = tf.keras.Sequential([
+    tf.keras.layers.Embedding(vocab_size, embedding_dim, input_length=max_length),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(16, activation='relu'),
+    tf.keras.layers.Dense(32, activation='relu'),
+    tf.keras.layers.Dense(3, activation=tf.nn.softmax)
+])
+model.compile(loss='sparse_categorical_crossentropy',optimizer=RMSprop(lr = 0.001),metrics=['accuracy'])
+model.summary()
+# Prediction on Validation Set
+
+num_epochs = 10
+model.fit(padded, training_labels_final,batch_size = 2000,epochs = num_epochs, validation_data=(validation_padded, validation_labels_final), verbose = 2)
+
+# using Logistic Regression Model
+print("Strating making predection using Model on Validation Set")
+predict = model.predict(validation_padded)
+# Creating Submission File
+
+# Using file handling to read text file
+with open('/kaggle/input/sentiment-analysis-of-tweets/test_samples.txt','r') as f:
+    data = f.readlines()
+
+# creating list for holding data at index position
+tweet_id = []
+sentences = []
+
+# Loading data into the list
+for line in data[1:]:
+    l = line.split(',',1)
+    if len(l) == 2:
+        tweet_id.append(l[0])
+        s = l[1][:-1]
+        sentences.append(s)
+    else:
+        l = line.split('\t',1)
+        if len(l) == 2:
+            tweet_id.append(l[0])
+            s = l[1][:-1]
+            sentences.append(s)
+        else:
+            print(l)
+
+# checking 
+print(len(tweet_id),len(sentences))
+
+#Pre Processing Test Data
+testing_sentences = []
+for sentence in sentences:
+    sent_list = sentence.split(" ")
+    new_sent_list = []
+    for word in sent_list:
+        word_l = word.lower()
+        if word_l not in stop_words and len(word_l)>0:
+            if '@' in word_l:
+                continue
+            elif len(word_l) > 4 and word_l[:4] == 'http':
+                continue
+            else:
+                w = ''.join([i for i in word_l if not i in string.punctuation])
+                if len(w) != 0:
+                    new_sent_list.append(w)
+                
+    new_sent = " ".join(new_sent_list)
+    
+    testing_sentences.append(new_sent)
+
+testing_sequences = tokenizer.texts_to_sequences(testing_sentences)
+testing_padded = pad_sequences(testing_sequences,maxlen=max_length)
+
+print(testing_sentences[0])
+print(testing_padded[0])
+testing_padded[0].shape
+
+# making prediction on test data using Model
+x = model.predict(testing_padded)
+print(x[0])
+np.argmax(x[0])
+
+testing_sentences[0]
+
+#Converting integer to sentiment
+submission_data = []
+for i in range(len(tweet_id)):
+    key_s = np.argmax(x[i])
+    sentiment = ""
+    if key_s == 0:
+        sentiment = 'negative'
+    elif key_s == 1:
+        sentiment = 'positive'
+    elif key_s == 2:
+        sentiment = 'neutral'
+    submission_data.append([tweet_id[i],sentiment])
+
+submission_data[:5]
+
+df = pd.DataFrame(submission_data, columns = ['tweet_id', 'sentiment'])
+
+df.head()
+# Saving File in CSV
+
+# for Neural net Model
+output_file = "submission.csv"
+df.to_csv(output_file, header = True, index = False)
+print(" Submission File Created Succesfull")
