@@ -1,0 +1,160 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+with open('/kaggle/input/sentiment-analysis-of-tweets/train.txt','r') as f:
+    data = f.readlines()
+tweet_id = []
+labels = []
+sentences = []
+for line in data[1:]:
+    l = line.split(',',2)
+    if len(l) == 3:
+        tweet_id.append(l[0])
+        if l[1] == 'positive':
+            x = 4
+        elif l[1] == 'negative':
+            x = 0
+        elif l[1] == 'neutral':
+            x = 2
+        labels.append(x)
+        s = l[2][:-1]
+        sentences.append(s)
+    else:
+        l = line.split('\t',2)
+        if len(l) == 3:
+            tweet_id.append(l[0])
+            if l[1] == 'positive':
+                x = 4
+            elif l[1] == 'negative':
+                x = 0
+            elif l[1] == 'neutral':
+                x = 2
+            labels.append(x)
+            s = l[2][:-1]
+            sentences.append(s)
+        else:
+            print(l)
+print(len(tweet_id), len(labels), len(sentences))
+sentence_df = pd.DataFrame(sentences, columns=['text'])
+sentence_df.head()
+labels_df = pd.DataFrame(labels, columns=['labels'])
+labels_df.head()
+import re
+import string
+from nltk.tokenize import word_tokenize
+import nltk
+stop_words = nltk.corpus.stopwords.words('english')
+from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer
+def preprocess_tweet_text(tweet):
+    tweet.lower()
+    tweet = re.sub(r"http\S+|www\S+|https\S+", '', tweet, flags=re.MULTILINE)
+    tweet = re.sub(r'\@\w+|\#','', tweet)
+    tweet = tweet.translate(str.maketrans('', '', string.punctuation))
+    tweet_tokens = word_tokenize(tweet)
+    filtered_words = [w for w in tweet_tokens if not w in stop_words]
+    
+    #ps = PorterStemmer()
+    #stemmed_words = [ps.stem(w) for w in filtered_words]
+    lemmatizer = WordNetLemmatizer()
+    lemma_words = [lemmatizer.lemmatize(w) for w in filtered_words]
+    
+    return " ".join(lemma_words)
+from sklearn.feature_extraction.text import TfidfVectorizer
+from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer
+def get_feature_vector(train_fit):
+    vector = TfidfVectorizer(sublinear_tf=True)
+    vector.fit(train_fit)
+    return vector
+sentence_df.text = sentence_df['text'].apply(preprocess_tweet_text)
+tf_vector = get_feature_vector(np.array(sentence_df.iloc[:, 0]).ravel())
+X = tf_vector.fit_transform(np.array(sentence_df.iloc[:, 0]).ravel())
+y = np.array(labels_df.iloc[:, 0]).ravel()
+X.shape
+r = X.shape[1]
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=30)
+from sklearn.linear_model import LogisticRegression
+LR_model = LogisticRegression(solver = 'saga')
+LR_model.fit(X_train, y_train)
+y_predict_lr = LR_model.predict(X_test)
+from sklearn.metrics import f1_score
+from sklearn.metrics import accuracy_score
+f1_score(y_test, y_predict_lr, average='weighted')
+accuracy_score(y_test, y_predict_lr)
+# Sumbission 
+
+with open('/kaggle/input/sentiment-analysis-of-tweets/test_samples.txt','r') as f:
+    data = f.readlines()
+
+tweet_id = []
+sentences = []
+
+for line in data[1:]:
+    l = line.split(',',1)
+    if len(l) == 2:
+        tweet_id.append(l[0])
+        s = l[1][:-1]
+        sentences.append(s)
+    else:
+        l = line.split('\t',1)
+        if len(l) == 2:
+            tweet_id.append(l[0])
+            s = l[1][:-1]
+            sentences.append(s)
+        else:
+            print(l)
+
+print(len(tweet_id),len(sentences))
+
+sentence_test = pd.DataFrame(sentences, columns=['text'])
+
+sentence_test.text = sentence_test['text'].apply(preprocess_tweet_text)
+
+X_test = tf_vector.transform(np.array(sentence_test.iloc[:, 0]).ravel())
+
+X_test.shape
+
+res = LR_model.predict(X_test)
+
+res
+
+print(len(res))
+print(len(tweet_id))
+
+def int_to_string(sentiment):
+    if sentiment == 0:
+        return "negative"
+    elif sentiment == 2:
+        return "neutral"
+    else:
+        return "positive"
+
+submission_data = []
+for i in range(len(tweet_id)):
+    sentiment = int_to_string(res[i])
+    submission_data.append([tweet_id[i],sentiment])
+
+submission_data[:5]
+
+df = pd.DataFrame(submission_data, columns = ['tweet_id', 'sentiment'])
+
+df.head()
+
+output_file = "submission.csv"
+df.to_csv(output_file, header = True, index = False)
+print("Succesfull Submission")
+
